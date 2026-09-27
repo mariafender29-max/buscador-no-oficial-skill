@@ -57,6 +57,77 @@ async function buscarEnWikipedia(query) {
   }
 }
 
+// Le pregunta a Google Gemini directamente (más "inteligente" que un resumen
+// de Wikipedia: puede razonar, resumir y responder casi cualquier pregunta).
+// Requiere la variable de entorno GEMINI_API_KEY (gratis, sin tarjeta, desde
+// https://aistudio.google.com/apikey). Devuelve null si algo falla, para que
+// el llamador pueda recurrir a Wikipedia como respaldo.
+async function preguntarAGemini(query) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const modelo = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text:
+                  'Responde en español, de forma breve (máximo 2 o 3 frases cortas), ' +
+                  'clara y natural para ser leída en voz alta por un altavoz inteligente. ' +
+                  'No uses listas, markdown, emojis ni texto entre paréntesis. ' +
+                  'Pregunta: ' +
+                  query,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens: 200,
+          temperature: 0.4,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      console.log('Gemini respondió con error HTTP: ' + res.status);
+      return null;
+    }
+
+    const data = await res.json();
+    const texto =
+      data &&
+      data.candidates &&
+      data.candidates[0] &&
+      data.candidates[0].content &&
+      data.candidates[0].content.parts &&
+      data.candidates[0].content.parts[0] &&
+      data.candidates[0].content.parts[0].text;
+
+    if (!texto) return null;
+
+    // Alexa no debe leer markdown (asteriscos, numerales, etc.) ni respuestas larguísimas.
+    let limpio = texto.replace(/[*_#`]/g, '').trim();
+    if (limpio.length > 500) {
+      const recorte = limpio.slice(0, 500);
+      const ultimoPunto = recorte.lastIndexOf('.');
+      limpio = ultimoPunto > 100 ? recorte.slice(0, ultimoPunto + 1) : recorte + '...';
+    }
+
+    return limpio;
+  } catch (error) {
+    console.log('Error llamando a Gemini: ' + error.message);
+    return null;
+  }
+}
+
 const SearchIntentHandler = {
   canHandle(handlerInput) {
     return (
@@ -74,11 +145,19 @@ const SearchIntentHandler = {
         .getResponse();
     }
 
-    const respuesta = await buscarEnWikipedia(query);
+    // 1) Intentamos con Gemini (respuestas más inteligentes y naturales).
+    // 2) Si no hay API key configurada o Gemini falla, caemos a Wikipedia.
+    let speakOutput;
+    const respuestaGemini = await preguntarAGemini(query);
 
-    const speakOutput = respuesta
-      ? `Según Wikipedia: ${respuesta} ¿Quieres buscar algo más?`
-      : `No encontré información sobre ${query} en Wikipedia. ¿Quieres buscar algo más?`;
+    if (respuestaGemini) {
+      speakOutput = `${respuestaGemini} ¿Quieres preguntar algo más?`;
+    } else {
+      const respuestaWikipedia = await buscarEnWikipedia(query);
+      speakOutput = respuestaWikipedia
+        ? `Según Wikipedia: ${respuestaWikipedia} ¿Quieres buscar algo más?`
+        : `No encontré información sobre ${query}. ¿Quieres buscar algo más?`;
+    }
 
     return handlerInput.responseBuilder
       .speak(speakOutput)
