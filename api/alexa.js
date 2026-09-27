@@ -90,8 +90,11 @@ async function preguntarAGemini(query) {
           },
         ],
         generationConfig: {
-          maxOutputTokens: 200,
+          maxOutputTokens: 500,
           temperature: 0.4,
+          thinkingConfig: {
+            thinkingLevel: 'low',
+          },
         },
       }),
     });
@@ -103,14 +106,20 @@ async function preguntarAGemini(query) {
     }
 
     const data = await res.json();
-    const texto =
-      data &&
-      data.candidates &&
-      data.candidates[0] &&
-      data.candidates[0].content &&
-      data.candidates[0].content.parts &&
-      data.candidates[0].content.parts[0] &&
-      data.candidates[0].content.parts[0].text;
+    const partes = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+
+    // Unimos todas las partes de texto (a veces el modelo devuelve la respuesta
+    // repartida en varios fragmentos) e ignoramos partes que no sean texto.
+    const texto = Array.isArray(partes)
+      ? partes
+          .map((p) => (p && typeof p.text === 'string' ? p.text : ''))
+          .join(' ')
+          .trim()
+      : null;
+
+    if (!texto) {
+      console.log('Gemini no devolvió texto. finishReason: ' + (data && data.candidates && data.candidates[0] && data.candidates[0].finishReason));
+    }
 
     if (!texto) return null;
 
