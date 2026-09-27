@@ -66,7 +66,7 @@ async function preguntarAGemini(query) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const modelo = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const modelo = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
 
   try {
@@ -97,7 +97,8 @@ async function preguntarAGemini(query) {
     });
 
     if (!res.ok) {
-      console.log('Gemini respondió con error HTTP: ' + res.status);
+      const textoError = await res.text().catch(() => '');
+      console.log('Gemini respondió con error HTTP ' + res.status + ' (modelo: ' + modelo + '): ' + textoError.slice(0, 300));
       return null;
     }
 
